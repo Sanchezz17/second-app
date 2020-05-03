@@ -131,35 +131,40 @@ namespace covidSim.Services
                     CalcNextStepForPersonAtMarket();
                     break;
             }
-        }
 
-        private bool TryToDie()
-        {
-            if (random.NextDouble() > ProbabilityOfDying) return false;
-            ChangeHealth(PersonHealth.Dead);
-            return true;
-        }
-
-        public void ChangeHealth(PersonHealth next)
-        {
-            Health = next;
-            switch (next)
+            if (PersonHealth == PersonHealth.Sick)
             {
-                case PersonHealth.Sick:
-                    StepsToRecovery = InitialStepsToRecovery;
-                    break;
-                case PersonHealth.Dead:
-                    StepsToRot = InitialStepsToRot;
-                    break;
+                if (random.NextDouble() <= ProbToDie)
+                {
+                    PersonHealth = PersonHealth.Dying;
+                }
+                sickStepsCount++;
+                if (sickStepsCount >= StepsToRecovery)
+                    PersonHealth = PersonHealth.Healthy;
             }
+            if (state == PersonState.AtHome)
+            {
+                if (IsHaveInfectedNeighbords())
+                {
+                    if (random.NextDouble() <= 0.5)
+                        IsSick = true;
+                }
+                HomeStayingDuration++;
+            }
+            else if (state == PersonState.Walking)
+            {
+                HomeStayingDuration = 0;
+                IsBored = false;
+            }
+
+            if (HomeStayingDuration > 4)
+                IsBored = true;
         }
 
-        private void CalcNextStepForPersonAtMarket()
+        private bool IsHaveInfectedNeighbords()
         {
-            timeAtMarket--;
-            if (timeAtMarket == 0)
-                State = PersonState.GoingHome;
-            Console.WriteLine(timeAtMarket);
+            var sickNeighbords = Game.Instance.People.Where(p => p.HomeId == HomeId && p.IsSick);
+            return sickNeighbords.Any(sn => sn.state == PersonState.AtHome);
         }
 
         private void CalcNextStepForPersonAtHome()
