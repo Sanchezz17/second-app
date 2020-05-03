@@ -1,135 +1,249 @@
 using System;
 using System.Linq;
 using covidSim.Models;
+using covidSim.Utils;
 
 namespace covidSim.Services
 {
     public class Person
     {
+        private static readonly Vec[] Directions = {
+            new Vec(-1, -1),
+            new Vec(-1, 1),
+            new Vec(1, -1),
+            new Vec(1, 1),
+        };
+        
         private const int MaxDistancePerTurn = 30;
+        private const int InitialStepsToRecovery = 35;
+        private const int InitialStepsToRot = 10;
+        private const int InitialStepsToLeaveMarket = 10;
+        private const double ProbabilityOfDying = 0.000003;
         private static Random random = new Random();
-        private PersonState state = PersonState.AtHome;
-        private int sickStepsCount = 0;
-        private int deadStepsCount = 0;
+        public PersonHealth Health = PersonHealth.Healthy;
+        private readonly CityMap map;
+        private House nearestMarket;
 
-        private int HomeStayingDuration;
-        private Vec homeCoords;
-
+        internal PersonState State { get; private set; } = PersonState.AtHome;
+        
         public Person(int id, int homeId, CityMap map, bool isSick)
         {
             Id = id;
             HomeId = homeId;
-            if (isSick)
-                PersonHealth = PersonHealth.Sick;
-            
+            IsSick = isSick;
+            IsBored = false;
+            timeAtHome = 0;
+            this.map = map;
+            if (isSick) 
+                ChangeHealth(PersonHealth.Sick);
 
-            homeCoords = map.Houses[homeId].Coordinates.LeftTopCorner;
+            var homeCoords = map.Houses[homeId].Coordinates.LeftTopCorner;
             var x = homeCoords.X + random.Next(HouseCoordinates.Width);
             var y = homeCoords.Y + random.Next(HouseCoordinates.Height);
             Position = new Vec(x, y);
+
+            nearestMarket = FindNearestMarket(map);
         }
 
-        private const int StepsToRecovery = 35;
-        private const double ProbToDie = 0.000003;
-        private const int StepsToDie = 10;
+        private House FindNearestMarket(CityMap map)
+        {
+            House nearestMarket = null;
+            var minDistanceToMarket = double.MaxValue;
+            foreach (var market in map.Markets)
+            {
+                var currentDistanceToMarket = Position.GetDistanceTo(market.Coordinates.LeftTopCorner);
+                if (currentDistanceToMarket < minDistanceToMarket)
+                {
+                    minDistanceToMarket = currentDistanceToMarket;
+                    nearestMarket = market;
+                }
+            }
+
+            return nearestMarket;
+        }
+
         public int Id;
         public int HomeId;
         public Vec Position;
-        public PersonHealth PersonHealth = PersonHealth.Healthy;
-
+        public bool IsSick;
         public bool IsBored;
+        private int timeAtHome;
+        public int StepsToRecovery;
+        public int StepsToRot;
+        private int timeAtMarket;
+
+        public bool OutOfTheGame => Health == PersonHealth.Dead && StepsToRot == 0;
 
         public void CalcNextStep()
         {
-            if (PersonHealth == PersonHealth.Dead)
-                return;
-
-            if (PersonHealth == PersonHealth.Dying)
+            if (CalcIsAtHome())
+                timeAtHome += 1;
+            else
             {
-                deadStepsCount++;
-                if (deadStepsCount >= StepsToDie)
-                    PersonHealth = PersonHealth.Dead;
-                return;
+                timeAtHome = 0;
             }
-            
-            switch (state)
+            IsBored = timeAtHome >= 5;
+       
+            switch (Health)
             {
-                case PersonState.AtHome:
+                case PersonHealth.Dead:
+                    StepsToRot--;
+                    return;
+                case PersonHealth.Sick:
+                {
+                    StepsToRecovery--;
+                    if (StepsToRecovery == 0)
+                        Health = PersonHealth.Healthy;
+                    else if (TryToDie())
+                        return;
+                    break;
+                }
+            }
+            Move();
+        }
+
+        private void Move()
+        {
+            if (random.NextDouble() >= 0.6 && State == PersonState.Walking)
+                State = PersonState.GoingMarket;
+
+            if (IsCoordInHouse(Position, nearestMarket) && State != PersonState.AtMarket && State != PersonState.GoingHome)
+            {
+                State = PersonState.AtMarket;
+                timeAtMarket = InitialStepsToLeaveMarket;
+            }
+
+            switch (State)
+            {
+                case PersonState.AtHome:                    
                     CalcNextStepForPersonAtHome();
                     break;
-                case PersonState.Walking:
+                case PersonState.Walking:                  
                     CalcNextPositionForWalkingPerson();
                     break;
-                case PersonState.GoingHome:
+                case PersonState.GoingHome:                   
                     CalcNextPositionForGoingHomePerson();
                     break;
+                case PersonState.GoingMarket:
+                    CalcNextPositionForGoingMarketPerson();
+                    break;
+                case PersonState.AtMarket:
+                    CalcNextStepForPersonAtMarket();
+                    break;
             }
+        }
 
-            if (PersonHealth == PersonHealth.Sick)
+        private bool TryToDie()
+        {
+            if (random.NextDouble() > ProbabilityOfDying) return false;
+            ChangeHealth(PersonHealth.Dead);
+            return true;
+        }
+
+        public void ChangeHealth(PersonHealth next)
+        {
+            Health = next;
+            switch (next)
             {
-                if (random.NextDouble() <= ProbToDie)
-                {
-                    PersonHealth = PersonHealth.Dying;
-                }
-                sickStepsCount++;
-                if (sickStepsCount >= StepsToRecovery)
-                    PersonHealth = PersonHealth.Healthy;
+                case PersonHealth.Sick:
+                    StepsToRecovery = InitialStepsToRecovery;
+                    break;
+                case PersonHealth.Dead:
+                    StepsToRot = InitialStepsToRot;
+                    break;
             }
-            if (state == PersonState.AtHome)
-                HomeStayingDuration++;
-            else if (state == PersonState.Walking)
-            {
-                HomeStayingDuration = 0;
-                IsBored = false;
-            }
-            
-            if (HomeStayingDuration > 4)
-                IsBored = true;
+        }
+
+        private void CalcNextStepForPersonAtMarket()
+        {
+            timeAtMarket--;
+            if (timeAtMarket == 0)
+                State = PersonState.GoingHome;
+            Console.WriteLine(timeAtMarket);
         }
 
         private void CalcNextStepForPersonAtHome()
         {
             var goingWalk = random.NextDouble() < 0.005;
             if (!goingWalk)
+                CalcNextPositionForStayingHomePerson();
+            else
             {
-                CalcNextPositionInHome();
-                return;
+                State = PersonState.Walking;
+                CalcNextPositionForWalkingPerson();
             }
 
-            state = PersonState.Walking;
-            CalcNextPositionForWalkingPerson();
         }
 
-        private bool isCoordInHome(Vec vec)
+        private void CalcNextPositionForStayingHomePerson()
         {
-            var xRight = homeCoords.X + random.Next(HouseCoordinates.Width);
-            var yBottom = homeCoords.Y + random.Next(HouseCoordinates.Height);
+            var nextPosition = GenerateNextRandomPosition();
 
-            var belowHome = vec.X < homeCoords.X || vec.Y < homeCoords.Y;
-            var beyondHome = vec.X > xRight || vec.Y > yBottom;
-
-            return !(belowHome || beyondHome);
+            if (isCoordInField(nextPosition) && IsCoordsInHouse(nextPosition))
+                Position = nextPosition;
         }
 
-        private void CalcNextPositionInHome()
+        private bool IsCoordsInHouse(Vec vec)
         {
-            var nextPosition = GetNextPosition();
+            var houseCoordinates = map.Houses[HomeId].Coordinates.LeftTopCorner;
 
-            if (isCoordInHome(nextPosition))
+            return
+                vec.X >= houseCoordinates.X && vec.X <= HouseCoordinates.Width+ houseCoordinates.X &&
+                vec.Y >= houseCoordinates.Y && vec.Y <= HouseCoordinates.Height+houseCoordinates.Y;
+        }
+
+        private Vec GenerateNextRandomPosition()
+        {
+            var xLength = random.Next(MaxDistancePerTurn);
+            var yLength = MaxDistancePerTurn - xLength;
+            var direction = ChooseRandomDirection();
+            var delta = new Vec(xLength * direction.X, yLength * direction.Y);
+            var nextPosition = new Vec(Position.X + delta.X, Position.Y + delta.Y);
+
+            return nextPosition;
+        }
+
+        private void CalcNextPositionForGoingMarketPerson()
+        {
+            var xLength = random.Next(MaxDistancePerTurn);
+            var yLength = MaxDistancePerTurn - xLength;
+            var randomDirection = ChooseRandomDirection();
+            var nextPosition = Position.Add(new Vec(xLength * randomDirection.X, yLength * randomDirection.Y));;
+            var minDistance = double.MaxValue;
+            foreach (var direction in Directions)
+            {
+                var delta = new Vec(xLength * direction.X, yLength * direction.Y);
+                var nextPositionByCurrentDirection = Position.Add(delta);
+                var marketCoordinate =
+                    nearestMarket.Coordinates.LeftTopCorner.Add(
+                        new Vec(HouseCoordinates.Width, HouseCoordinates.Height));
+                var currentDistance = nextPositionByCurrentDirection.GetDistanceTo(marketCoordinate);
+                if (currentDistance < minDistance && !IsCoordInAnyHouse(nextPositionByCurrentDirection))
+                {
+                    nextPosition = nextPositionByCurrentDirection;
+                    minDistance = currentDistance;
+                }
+            }
+            
+            if (isCoordInField(nextPosition) && !IsCoordInAnyHouse(nextPosition))
             {
                 Position = nextPosition;
             }
             else
             {
-                CalcNextPositionInHome();
+                CalcNextPositionForWalkingPerson();
             }
         }
-
+        
         private void CalcNextPositionForWalkingPerson()
         {
-            var nextPosition = GetNextPosition();
+            var xLength = random.Next(MaxDistancePerTurn);
+            var yLength = MaxDistancePerTurn - xLength;
+            var direction = ChooseRandomDirection();
+            var delta = new Vec(xLength * direction.X, yLength * direction.Y);
+            var nextPosition = new Vec(Position.X + delta.X, Position.Y + delta.Y);
 
-            if (IsCoordInField(nextPosition) && IsCoordNotInOtherHouse(nextPosition))
+            if (isCoordInField(nextPosition) && !IsCoordInAnyHouse(nextPosition))
             {
                 Position = nextPosition;
             }
@@ -139,21 +253,25 @@ namespace covidSim.Services
             }
         }
 
-        private Vec GetNextPosition()
+        private bool CalcIsAtHome()
         {
-            var xLength = random.Next(MaxDistancePerTurn);
-            var yLength = MaxDistancePerTurn - xLength;
-            var direction = ChooseDirection();
-            var delta = new Vec(xLength * direction.X, yLength * direction.Y);
-            var nextPosition = new Vec(Position.X + delta.X, Position.Y + delta.Y);
-            return nextPosition;
+            var game = Game.Instance;
+            var homeCoordLeft = game.Map.Houses[HomeId].Coordinates.LeftTopCorner;
+            var homeWidth = HouseCoordinates.Width;
+            var homeHeight = HouseCoordinates.Height;
+            if (Position.X < homeCoordLeft.X || Position.X >= homeCoordLeft.X + homeWidth)
+                return false;
+            if (Position.Y < homeCoordLeft.Y || Position.Y >= homeCoordLeft.Y + homeHeight)
+                return false;
+            return true;
         }
 
         private void CalcNextPositionForGoingHomePerson()
         {
             var game = Game.Instance;
             var homeCoord = game.Map.Houses[HomeId].Coordinates.LeftTopCorner;
-            var homeCenter = new Vec(homeCoord.X + HouseCoordinates.Width / 2, homeCoord.Y + HouseCoordinates.Height / 2);
+            var homeCenter = new Vec(homeCoord.X + HouseCoordinates.Width / 2,
+                homeCoord.Y + HouseCoordinates.Height / 2);
 
             var xDiff = homeCenter.X - Position.X;
             var yDiff = homeCenter.Y - Position.Y;
@@ -164,7 +282,7 @@ namespace covidSim.Services
             if (distance <= MaxDistancePerTurn)
             {
                 Position = homeCenter;
-                state = PersonState.AtHome;
+                State = PersonState.AtHome;
                 return;
             }
 
@@ -179,26 +297,36 @@ namespace covidSim.Services
 
         public void GoHome()
         {
-            if (state != PersonState.Walking) return;
+            if (State != PersonState.Walking) return;
 
-            state = PersonState.GoingHome;
+            State = PersonState.GoingHome;
             CalcNextPositionForGoingHomePerson();
         }
 
-        private Vec ChooseDirection()
+        private Vec ChooseRandomDirection()
         {
-            var directions = new Vec[]
-            {
-                new Vec(-1, -1),
-                new Vec(-1, 1),
-                new Vec(1, -1),
-                new Vec(1, 1),
-            };
-            var index = random.Next(directions.Length);
-            return directions[index];
+            var index = random.Next(Directions.Length);
+            return Directions[index];
         }
 
-        private bool IsCoordInField(Vec vec)
+        /*private Vec ChooseNearestToMarketNextPosition()
+        {
+            Vec nearestToMarketDirection = null;
+            var newMinDistanceToMarket = double.MaxValue;
+            foreach (var direction in Directions)
+            {
+                var currentDistanceToMarket = nextPosition.GetDistanceTo(nearestMarket.Coordinates.LeftTopCorner);
+                if (currentDistanceToMarket < newMinDistanceToMarket
+                    && !IsCoordInAnyHouse(nextPosition))
+                {
+                    nearestToMarketDirection = direction;
+                    newMinDistanceToMarket = currentDistanceToMarket;
+                }
+            }
+            return nearestToMarketDirection ?? ChooseRandomDirection();
+        }*/
+
+        private bool isCoordInField(Vec vec)
         {
             var belowZero = vec.X < 0 || vec.Y < 0;
             var beyondField = vec.X > Game.FieldWidth || vec.Y > Game.FieldHeight;
@@ -206,24 +334,16 @@ namespace covidSim.Services
             return !(belowZero || beyondField);
         }
 
-        private bool IsCoordNotInOtherHouse(Vec vec)
-        {
-            return Game.Instance.Map.Houses
-                .Where(x => x.Id != HomeId)
-                .All(x => !IsCoordInHouse(vec, x.Coordinates));
-        }
+        private bool IsCoordInAnyHouse(Vec vec) => map.Houses
+            .Where(h => !h.IsMarket)
+            .Any(h => IsCoordInHouse(vec, h));
 
-        private bool IsCoordInHouse(Vec vec, HouseCoordinates houseCoordinates)
+        private static bool IsCoordInHouse(Vec vec, House house)
         {
-            var homeCoord = houseCoordinates.LeftTopCorner;
-            var homeCenter = new Vec(homeCoord.X + HouseCoordinates.Width / 2,
-                homeCoord.Y + HouseCoordinates.Height / 2);
-            if (homeCenter.X - HouseCoordinates.Width / 2 <= vec.X &&
-                vec.X <= homeCenter.X + HouseCoordinates.Width / 2 &&
-                homeCenter.Y - HouseCoordinates.Height / 2 <= vec.Y &&
-                vec.Y <= homeCenter.Y + HouseCoordinates.Height / 2)
-                return true;
-            return false;
+            return vec.X > house.Coordinates.LeftTopCorner.X &&
+                   vec.X < house.Coordinates.LeftTopCorner.X + HouseCoordinates.Width &&
+                   vec.Y > house.Coordinates.LeftTopCorner.Y &&
+                   vec.Y < house.Coordinates.LeftTopCorner.Y + HouseCoordinates.Height;
         }
     }
 }

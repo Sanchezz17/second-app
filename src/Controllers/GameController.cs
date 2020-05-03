@@ -3,10 +3,11 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace covidSim.Controllers
 {
-    [Route("api/state")]
+    
     public class GameController : Controller
     {
         [HttpGet]
+        [Route("api/state")]
         public IActionResult State()
         {
             var game = Game.Instance;
@@ -14,12 +15,12 @@ namespace covidSim.Controllers
             return Ok(game);
         }
 
-        [HttpGet("restart")]
+        [HttpGet]
+        [Route("api/restart")]
         public IActionResult Restart()
         {
-            var game = Game.Instance;
-            game = game.Restart();
-            return Ok(game);
+            Game.Restart();
+            return Ok(Game.Instance);
         }
     }
 }

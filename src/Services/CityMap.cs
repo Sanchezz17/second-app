@@ -6,16 +6,21 @@ namespace covidSim.Services
     public class CityMap
     {
         public House[] Houses;
+        public House[] Markets;
 
         private const int ComfortablePeopleAmountInHouse = 5;
-        private const int HousesInGroup = 8;
-        private const int GroupsInRow = 2; // |..|..|..|..|..|..|..|..|  |..|..|..|..|..|..|..|..|
+        private const int HousesInGroup = 4;
+        private const int GroupsInRow = 4; // |..|..|..|..|  |..|..|..|..|  |..|..|..|..|  |..|..|..|..|
         
         public const int HouseAmount = Game.PeopleCount / ComfortablePeopleAmountInHouse;
 
         public CityMap()
         {
             Houses = CreateMap();
+            
+            Houses[0].IsMarket = true;
+            Houses[^1].IsMarket = true;
+            Markets = new[] { Houses[0], Houses[^1] };
         }
 
         private static House[] CreateMap()

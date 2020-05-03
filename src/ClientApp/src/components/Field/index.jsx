@@ -7,7 +7,7 @@ import House from "../House";
 export default function Field({ map, people, onClick }) {
     return (
         <div className={ styles.root }>
-            { map.map((item, i) => <House key={ i } x={ item.x } y={ item.y }/>) }
+            { map.map((item, i) => <House key={ i } x={ item.x } y={ item.y } isMarket={ item.isMarket }/>) }
             { people.map(item =>
                 <Person person={ item }
                         key={ item.id }

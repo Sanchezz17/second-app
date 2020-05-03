@@ -2,7 +2,7 @@ import React from 'react';
 import styles from './style.module.css';
 import Field from '../Field';
 import { DELAY, MAX_HEIGHT, MAX_WIDTH } from '../../consts/sizes';
-import { gameStateUrl, userActionUrl } from '../../consts/urls';
+import { gameStateUrl, userActionUrl, gameRestartUrl } from '../../consts/urls';
 import errorHandler from "../../utils/errorHandler";
 import Instruction from "../Instruction";
 
@@ -30,22 +30,38 @@ export default class App extends React.Component {
         return (
             <div className={ styles.root }>
                 { instructionOpen && <Instruction onClose={ this.closeInstruction }/> }
-                <h1 className={ styles.title }>Симулятор COVID</h1>
+                <div className={styles.container}>
+                    <h1 className={ styles.title }>Симулятор COVID</h1>
+                    <button onClick={ this.restartGame } className={styles.button}>Начать сначала</button>
+                </div>
                 <Field
                     map={ map }
                     people={ people }
-                    onClick={this.personClick} />
-                <input type='button' onClick={this.restart} value='Restart' />
+                    onClick={ this.personClick }/>
+
             </div>
         );
     }
 
-    restart() {
-        fetch(gameStateUrl + "restart", {
-            method: 'GET'
-        })
-            .then(errorHandler);
-    }
+    restartGame = () => {
+        const response = fetch(gameRestartUrl);
+        this.setGameStateFromServer(response);
+    };
+
+    setGameStateFromServer = (promise) => {
+        promise.then(errorHandler)
+            .then(res => res.json())
+            .then(game => {
+                this.setState({
+                    people: game.people,
+                    map: game.map.houses.map(i => ({
+                        x: i.coordinates.leftTopCorner.x,
+                        y: i.coordinates.leftTopCorner.y,
+                        isMarket: i.isMarket
+                    })),
+                })
+            })
+    };
 
     closeInstruction = () => {
         this.setState({
@@ -70,14 +86,7 @@ export default class App extends React.Component {
     }
 
     getNewStateFromServer = () => {
-        fetch(gameStateUrl)
-            .then(errorHandler)
-            .then(res => res.json())
-            .then(game => {
-                this.setState({
-                    people: game.people,
-                    map: game.map.houses.map(i => i.coordinates.leftTopCorner),
-                })
-            })
+        const response = fetch(gameStateUrl);
+        this.setGameStateFromServer(response);
     }
 }
