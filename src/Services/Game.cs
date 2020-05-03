@@ -18,6 +18,7 @@ namespace covidSim.Services
 
         private const double InfectionRadrius = 7.0;
         private const double ChanceOfInfection = 0.5;
+        private const double SicknessProbability = 0.03;
         public const int FieldWidth = 1000;
         public const int FieldHeight = 500;
         public const int MaxPeopleInHouse = 10;
@@ -40,7 +41,7 @@ namespace covidSim.Services
         {
             return Enumerable
                 .Repeat(0, PeopleCount)
-                .Select((_, index) => new Person(index, FindHome(), Map, index <= PeopleCount * 0.03))
+                .Select((_, index) => new Person(index, FindHome(), Map, index <= PeopleCount * SicknessProbability))
                 .ToList();
         }
 
