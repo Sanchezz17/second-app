@@ -76,15 +76,28 @@ namespace covidSim.Services
                     PersonHealth = PersonHealth.Healthy;
             }
             if (state == PersonState.AtHome)
+            {
+                if (IsHaveInfectedNeighbords())
+                {
+                    if (random.NextDouble() <= 0.5)
+                        IsSick = true;
+                }
                 HomeStayingDuration++;
+            }
             else if (state == PersonState.Walking)
             {
                 HomeStayingDuration = 0;
                 IsBored = false;
             }
-            
+
             if (HomeStayingDuration > 4)
                 IsBored = true;
+        }
+
+        private bool IsHaveInfectedNeighbords()
+        {
+            var sickNeighbords = Game.Instance.People.Where(p => p.HomeId == HomeId && p.IsSick);
+            return sickNeighbords.Any(sn => sn.state == PersonState.AtHome);
         }
 
         private void CalcNextStepForPersonAtHome()
